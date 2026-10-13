@@ -305,3 +305,10 @@ button.quiet:hover { color: var(--ink); }
 @media (max-width: 32rem) {
   .perf { right: 0.75rem; bottom: 0.75rem; left: 0.75rem; max-width: none; }
 }
+
+/* ---- history ---- */
+
+.history-chart {
+  position: relative;
+  height: 180px;
+}
