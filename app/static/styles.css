@@ -131,10 +131,50 @@ button.quiet:hover { color: var(--ink); }
   font-weight: 600;
 }
 
-.marker {
-  padding: 1rem 0;
-  border-bottom: 1px solid var(--rule);
+/* Material Web elevated card (labs). If the module fails to load the element
+   is unknown, so give it a plain card look of its own. */
+md-elevated-card.marker {
+  display: block;
+  margin-top: 0.75rem;
+  border-radius: 12px;
+  background: #fff;
+  --md-elevated-card-container-color: #fff;
+  --md-elevated-card-container-shape: 12px;
 }
+
+md-elevated-card.marker:not(:defined) { box-shadow: 0 1px 3px rgb(0 0 0 / 0.15); }
+
+.history-toggle {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 1rem 1rem 0.85rem;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.history-toggle:focus-visible { outline: 2px solid var(--optimal); outline-offset: -2px; }
+
+.marker-reading {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.chevron {
+  color: var(--muted);
+  transition: transform 150ms ease;
+}
+
+.history-toggle[aria-expanded="true"] .chevron { transform: rotate(180deg); }
+
+.scale-wrap, .scale-labels, .band { display: block; }
+.scale-labels { display: flex; }
 
 .marker-head {
   display: flex;
@@ -159,10 +199,17 @@ button.quiet:hover { color: var(--ink); }
 
 .marker-status {
   display: inline-block;
-  min-width: 4.5rem;
-  text-align: right;
-  font-size: 0.8125rem;
+  min-width: 5.5rem;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 600;
 }
+
+.status-optimal { background: rgb(47 111 98 / 0.12); }
+.status-good { background: rgb(168 130 60 / 0.14); }
+.status-improve { background: rgb(162 84 74 / 0.12); }
 
 .status-optimal { color: var(--optimal); }
 .status-good { color: var(--good); }
@@ -313,13 +360,28 @@ button.quiet:hover { color: var(--ink); }
   height: 180px;
 }
 
-.history-toggle {
-  margin-top: 0.6rem;
-  padding: 0.2rem 0.6rem;
-  font-size: 0.8125rem;
+.history {
+  padding: 0.75rem 1rem 1rem;
+  border-top: 1px solid var(--rule);
 }
 
-.history { margin-top: 0.75rem; }
+.band-legend {
+  display: flex;
+  gap: 1rem;
+  margin: 0.6rem 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.band-legend li { display: inline-flex; align-items: center; gap: 0.35rem; }
+
+.band-legend .swatch {
+  width: 0.8rem;
+  height: 0.8rem;
+  border-radius: 3px;
+}
 
 .history-note {
   margin: 0.5rem 0;

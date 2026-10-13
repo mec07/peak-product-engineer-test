@@ -34,6 +34,18 @@ Spec: [docs/superpowers/specs/2026-10-13-biomarker-history-design.md](docs/super
   improve red, at about 18% opacity. Any area outside every band is red, matching
   the server's `band_for`. The tooltip also names the band in words.
 
+- **Cards use Google's Material Web.** `md-elevated-card` (still in `labs`),
+  `md-icon` and `md-ripple`, loaded from a CDN with no build step. The whole card
+  summary is one button with a chevron that rotates when open, and status shows as
+  a pill.
+  - Considered: Web Awesome (`wa-card`/`wa-details`), Beer CSS (restyles global
+    elements, so it would clash with the existing CSS), and MUI/Joy (React-only;
+    Joy is on hold).
+  - Risk: labs APIs can change. If the modules fail to load, the cards fall back to
+    plain CSS and still work.
+- **Bands at 35% opacity, with a legend** (Optimal / Good / Needs work) under each
+  biomarker chart. 18% was too faint to tell the colours apart.
+
 ### Assumptions
 
 - A point's ranges and status are as recorded at its draw. Today's definition may

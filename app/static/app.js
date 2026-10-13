@@ -90,7 +90,7 @@ async function renderHistory(panel, result) {
   canvas.setAttribute("role", "img");
   canvas.setAttribute("aria-label", `${result.name} history, ${points.length} results`);
   wrap.append(canvas);
-  panel.replaceChildren(wrap);
+  panel.replaceChildren(wrap, bandLegend());
   if (history.truncated) panel.append(note("Showing your last 30 tests."));
 
   lineChart(canvas, {
@@ -129,31 +129,36 @@ function renderMarker(result) {
   const { bands, low, high, span } = scaleFor(result.ranges);
   const offset = Math.min(100, Math.max(0, ((result.value - low) / span) * 100));
 
-  const node = document.createElement("article");
+  // The card's summary is one button: tapping anywhere on it toggles history.
+  // Spans, not divs, because a button may only hold phrasing content.
+  const node = document.createElement("md-elevated-card");
   node.className = "marker";
   node.innerHTML = `
-    <div class="marker-head">
-      <span class="marker-name"></span>
-      <span>
-        <span class="marker-value"></span><span class="marker-unit"></span>
-        <span class="marker-status status-${result.status}"></span>
+    <button type="button" class="history-toggle" aria-expanded="false">
+      <md-ripple></md-ripple>
+      <span class="marker-head">
+        <span class="marker-name"></span>
+        <span class="marker-reading">
+          <span class="marker-value"></span><span class="marker-unit"></span>
+          <span class="marker-status status-${result.status}"></span>
+          <md-icon class="chevron" aria-hidden="true">expand_more</md-icon>
+        </span>
       </span>
-    </div>
-    <div class="scale-wrap">
-      <div class="scale">
-        ${bands
-          .map(
-            (b) =>
-              `<div class="band band-${b.band}" style="width:${
-                ((b.max - b.min) / span) * 100
-              }%"></div>`
-          )
-          .join("")}
-      </div>
-      <div class="tick" style="left:${offset}%"></div>
-    </div>
-    <div class="scale-labels"><span class="low"></span><span class="high"></span></div>
-    <button type="button" class="quiet history-toggle" aria-expanded="false">History</button>
+      <span class="scale-wrap">
+        <span class="scale">
+          ${bands
+            .map(
+              (b) =>
+                `<span class="band band-${b.band}" style="width:${
+                  ((b.max - b.min) / span) * 100
+                }%"></span>`
+            )
+            .join("")}
+        </span>
+        <span class="tick" style="left:${offset}%"></span>
+      </span>
+      <span class="scale-labels"><span class="low"></span><span class="high"></span></span>
+    </button>
     <div class="history" hidden></div>
   `;
 

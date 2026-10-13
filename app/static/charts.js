@@ -12,7 +12,7 @@
 
 (function () {
   const BAND_LABEL = { optimal: "Optimal", good: "Good", improve: "Needs work" };
-  const BAND_ALPHA = 0.18;
+  const BAND_ALPHA = 0.35;
 
   function cssColor(name) {
     return getComputedStyle(document.documentElement)
@@ -86,6 +86,21 @@
     const pad = (hi - lo) * 0.08 || Math.abs(hi) * 0.1 || 1;
     return { min: lo >= 0 ? Math.max(0, lo - pad) : lo - pad, max: hi + pad };
   }
+
+  /* Key for the background bands. Only charts drawn with periods need one. */
+  window.bandLegend = function () {
+    const list = document.createElement("ul");
+    list.className = "band-legend";
+    for (const band of ["optimal", "good", "improve"]) {
+      const item = document.createElement("li");
+      const swatch = document.createElement("span");
+      swatch.className = "swatch";
+      swatch.style.background = withAlpha(cssColor(band), BAND_ALPHA * 1.6);
+      item.append(swatch, BAND_LABEL[band]);
+      list.append(item);
+    }
+    return list;
+  };
 
   window.lineChart = function (canvas, { points, unit, periods = [] }) {
     const ink = cssColor("ink");
