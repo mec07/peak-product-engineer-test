@@ -129,8 +129,29 @@ class OkPayload(BaseModel):
     ok: bool
 
 
+class DailyPoint(BaseModel):
+    date: str
+    value: float | None
+
+
+class WearableSeries(BaseModel):
+    metric: str
+    label: str
+    unit: str
+    supported: bool
+    points: list[DailyPoint]
+
+
+class WearableHistory(BaseModel):
+    provider: str
+    start: str
+    end: str
+    series: list[WearableSeries]
+
+
 class HomePayload(BaseModel):
     results: list[BiomarkerView]
+    wearables: WearableHistory | None = None
 
 
 class HistoryPoint(BaseModel):
