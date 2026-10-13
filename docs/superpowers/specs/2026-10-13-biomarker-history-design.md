@@ -57,14 +57,17 @@ Response:
 class HistoryPoint(BaseModel):
     tested_at: str
     value: float
-    unit: str
-    status: str
+    status: str                  # as recorded at the draw
+
+class RangePeriod(BaseModel):
+    from_tested_at: str          # first point these ranges apply to
     ranges: Ranges
 
 class BiomarkerHistory(BaseModel):
     biomarker_id: str
     unit: str
     points: list[HistoryPoint]   # oldest first
+    range_periods: list[RangePeriod]  # oldest first; a new entry only when ranges change
 
 class HistoryPayload(BaseModel):
     biomarkers: list[BiomarkerHistory]
@@ -78,7 +81,15 @@ class HistoryPayload(BaseModel):
   order, so no re-sorting is needed.
 - **Partial draws:** a marker absent from a draw has no point for it. No
   interpolation.
-- **Ranges and status:** each point carries the values stored with its draw.
+- **Status:** each point carries the status stored with its draw. It's one short
+  string, and it's what was told to the member at the time.
+- **Ranges:** sent as periods, not per point. Walking points in order, a new
+  `RangePeriod` starts at the first point and whenever a point's stored ranges
+  differ from the previous point's. In the fixtures, 60–110 points per member
+  collapse to 32–36 periods, with at most 2 per marker. Ranges are about 70% of a
+  point's bytes, so this cuts the payload roughly in half to two-thirds. The bands
+  are also periods, so this is the shape the chart needs.
+- **Unit:** sent once per marker, not per point.
 - **Unit guard:** `unit` is the latest point's unit. Earlier points with a different
   unit are left out, not converted. The fixtures have no such points; the guard
   stops a chart from plotting mg/dL and mmol/L on one axis.
@@ -91,9 +102,9 @@ One reusable function, which Task 2's wearable charts will also use:
 
 ```js
 lineChart(canvas, {
-  points: [{ label: "1 Oct 2024", value: 125, ranges?: {...}, status?: "optimal" }],
+  points: [{ label: "1 Oct 2024", value: 125, status?: "optimal" }],
   unit: "mg/dL",
-  bands: true | false,   // colour the background by reference band
+  periods?: [{ startIndex: 0, ranges: {...} }],  // omitted for wearables: no bands
 })
 ```
 
@@ -112,8 +123,9 @@ lineChart(canvas, {
   - Any y-range not covered by a band is shaded as improve. This matches
     `band_for` in `ingest.py`, which classifies out-of-band values as `improve`.
     Example: BUN below 10 on an `in_range` marker.
-  - Bands are drawn per point slice of the x axis. When ranges change between
-    draws, the bands visibly step.
+  - Each `RangePeriod` is drawn from its first point's x-slice to the slice
+    before the next period starts. When ranges change, the bands visibly step.
+    Wearable charts pass no periods.
 - **Y axis:** fits the data, padded so the nearest band edges are visible. It does
   not cover the full band span, which can be 0–400 and would flatten the line.
 - **Tooltip:** date, value with unit, and band label in words ("Optimal", "Good",
@@ -151,8 +163,8 @@ Using the `home_data`-style fixtures with direct `store.put`:
 1. The endpoint requires a valid session (401 without one).
 2. Points are chronological, and the last point matches `/api/home`'s value and
    `tested_at` for that marker.
-3. Each point keeps its own draw's ranges and status, including when ranges
-   changed between draws.
+3. Each point keeps its own draw's status. Ranges collapse into periods: identical
+   ranges give 1 period, and a change gives a new period starting at that draw.
 4. A partial draw shortens history only for the markers it omits.
 5. A point with a mismatched unit is left out.
 6. Member isolation: user-2's draws never appear in user-1's history.
@@ -171,8 +183,8 @@ Measured on a scratch DB (typed query, p50 of 20 runs):
 | 100 | 14.8 ms | ~629 KB |
 
 - `/api/home`: flat at any draw count, because it reads only the latest draw.
-- History endpoint: capped at 30 draws, so at most about 4 ms of decoding and about
-  190 KB. It's off the budgeted path and runs once per page.
+- History endpoint: capped at 30 draws, so at most about 4 ms of decoding, and under
+  about 100 KB once ranges are sent as periods. It's off the budgeted path and runs once per page.
 - Next step if draw counts grow (for NOTES.md, not built now): a per-marker history
   copy written at ingest, `history:{user_id}` with sk = `biomarker_id` and compact
   points. Reads become one small doc per marker. The cost moves to writes, and
@@ -181,7 +193,7 @@ Measured on a scratch DB (typed query, p50 of 20 runs):
 ## How this sets up Task 2
 
 - The chart function already takes a plain `{points, unit}` series with gaps.
-  Wearables need no new chart code, only `bands: false`.
+  Wearables need no new chart code; they just omit `periods`.
 - Task 2 requires wearable chart data inside `/api/home`. Leaving biomarker history
   out of `/api/home` keeps that budget free for the wearables block.
 - Task 2's storage layout is decided in its own spec.
