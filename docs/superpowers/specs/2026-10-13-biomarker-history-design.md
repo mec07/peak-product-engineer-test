@@ -79,10 +79,20 @@ lineChart(canvas, {
   mislead. For Task 2, the server sends one point per calendar day with
   `value: null` for missing days, and Chart.js shows those as breaks in the line
   (`spanGaps: false`).
-- **Bands:** a small inline Chart.js plugin (`beforeDatasetsDraw`). For each point it
-  fills the optimal, good and improve rectangles across that point's slice of the
-  x axis, using the same colours as the existing scale in `styles.css`. When
-  ranges change between draws, the band visibly steps.
+- **Bands:** a small inline Chart.js plugin (`beforeDatasetsDraw`) colours the
+  chart background by band: optimal green, good amber, improve red. It uses the
+  existing `--optimal`, `--good` and `--improve` colours from `styles.css` at about
+  18% opacity, so the line and points stay readable on top.
+  - The plugin loops over whatever bands a point's ranges contain, so a band
+    split into two regions (say, good above and below optimal) needs no special
+    case. In today's data each band is one contiguous region.
+  - Any y-range not covered by a band is shaded as improve. This matches
+    `band_for` in `ingest.py`, which classifies out-of-band values as `improve`.
+    Example: BUN below 10 on an `in_range` marker, so a marker like that shows red
+    above and below its bands.
+  - Bands are drawn per point slice of the x axis. When ranges change between
+    draws, the bands visibly step.
+  - Colour is never the only signal. The tooltip names the band in words.
 - **Y axis:** fits the data, padded so the nearest band edges are visible. It does
   not cover the full band span, which can be 0–400 and would flatten the line.
 - **Tooltip:** date, value with unit, and band label ("Optimal", "Good", "Needs
