@@ -32,6 +32,24 @@ def ingest_member(user_id: str, store: Store = Depends(get_store)) -> Member:
     return member
 
 
+def revision(upload_id: str) -> tuple[str, int]:
+    """Split "ga_20260717_r2" into ("ga_20260717", 2); an unsuffixed id is rev 1.
+
+    Providers mark a corrected resend with an _rN suffix. Ordering by revision,
+    not arrival, stops a late or retried original from undoing its correction.
+    """
+    base, marker, number = upload_id.rpartition("_r")
+    if marker and number.isdigit():
+        return base, int(number)
+    return upload_id, 1
+
+
+def is_older_revision(incoming: str, current: str) -> bool:
+    incoming_base, incoming_rev = revision(incoming)
+    current_base, current_rev = revision(current)
+    return incoming_base == current_base and incoming_rev < current_rev
+
+
 @router.post("/wearables", response_model=Envelope[WearablePayload])
 def add_wearable_day(
     body: WearableBody,
@@ -61,7 +79,10 @@ def add_wearable_day(
     existing = store.get(partition, day, WearableDayDocument)
     if existing is not None and upload_id == existing.upload_id:
         return Envelope(data=WearablePayload(stored=True, date=day))
-    if existing is not None and upload_id in existing.superseded_upload_ids:
+    if existing is not None and (
+        upload_id in existing.superseded_upload_ids
+        or is_older_revision(upload_id, existing.upload_id)
+    ):
         return Envelope(data=WearablePayload(stored=False, date=day))
 
     superseded = (

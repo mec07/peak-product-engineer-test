@@ -200,3 +200,12 @@ def test_wearables_are_isolated_per_member(client):
     ingest(client, "user-1", "2026-08-31")
     assert home_wearables(client, "user-2") is None
     assert home_wearables(client, "user-1")["provider"] == "oura"
+
+
+def test_an_original_arriving_after_its_correction_does_not_undo_it(client):
+    # Queues and retries reorder deliveries: the _r2 correction can land first.
+    ingest(client, "user-3", "2026-07-17_r2")
+    late = ingest(client, "user-3", "2026-07-17")
+    assert late == {"stored": False, "date": "2026-07-17", "replaced_upload_id": None}
+    w = home_wearables(client, "user-3")
+    assert value_on(w, "resting_hr_bpm", "2026-07-17") == 67
