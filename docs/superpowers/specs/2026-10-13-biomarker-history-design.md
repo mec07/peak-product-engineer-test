@@ -1,6 +1,7 @@
 # Task 1: Biomarker history — design
 
-Status: approved in chat (layout: expand per card). Task 2 (wearables) builds on this.
+Status: approved in chat. Layout: expandable card; history is fetched when a card is
+first expanded. Task 2 (wearables) builds on this.
 
 ## Goal
 
@@ -10,27 +11,36 @@ that applied at each draw. The card keeps showing the latest value and unit.
 
 ## Data facts that drive the design
 
-- 2–6 draws per member in `results:{user_id}`, sort key = ISO timestamp.
+- Today there are 2–6 draws per member in `results:{user_id}`, sort key = ISO
+  timestamp. This will grow; see Scaling.
 - Middle draws are partial (5–12 of 30 markers), so history length varies per marker.
 - Stored ranges change between draws for 2–6 markers per member. Each point must
   use its own draw's ranges and status, not the current definition.
 - Units never change within a member's history in the fixtures.
 
-## API: extend `GET /api/home`
+## API
 
-No new endpoint; the client still makes one request.
+### `GET /api/home` — unchanged
 
-Store access for the biomarker part of `/api/home`, two calls total:
+Home keeps its current reads (`keys()` + one `get` + definitions). Its cost doesn't
+depend on how many draws a member has, so history growth never touches the 35 ms
+budget.
 
-1. `store.query("results:{user_id}", ResultsDocument)` — every draw, oldest first.
-2. `store.query("biomarker", BiomarkerDefinition)` — definitions (unchanged).
+### New: `GET /api/biomarkers/history`
 
-This replaces today's `keys()` + `get(last)`. Reading ≤6 small documents costs about
-the same as reading one. No `scan` anywhere on this path.
+Signed-in member only (`Depends(current_user)`), same envelope as the other routes.
+It's fetched by the client the first time any card is expanded, then cached for the
+page's lifetime, so expanding more cards doesn't re-fetch.
 
-### Response shape
+Store access: one call, `store.query("results:{user_id}", ResultsDocument)`, which
+returns every draw oldest first. No `scan`.
 
-New model, added to `app/models.py`:
+Why one endpoint for all markers rather than `/biomarkers/{id}/history`: data is
+partitioned by draw, not by marker, so one marker's history means reading every
+draw anyway. Reading them once and returning all markers costs the same as one
+marker, and every later expand is then instant.
+
+Response:
 
 ```python
 class HistoryPoint(BaseModel):
@@ -39,26 +49,28 @@ class HistoryPoint(BaseModel):
     unit: str
     status: str
     ranges: Ranges
+
+class BiomarkerHistory(BaseModel):
+    biomarker_id: str
+    unit: str
+    points: list[HistoryPoint]   # oldest first
+
+class HistoryPayload(BaseModel):
+    biomarkers: list[BiomarkerHistory]
 ```
 
-`BiomarkerView` gains `history: list[HistoryPoint]`, oldest first. The latest point is
-also the one shown in the card. All existing `BiomarkerView` fields keep their
-meaning, so existing clients and tests are unaffected. `meta` is unchanged:
-`meta.tested_at` stays the latest draw's timestamp.
+`meta`: `{"draws": <number of draws read>}`.
 
 ### Rules
 
-- **Which markers are listed:** every marker that appears in any draw (union).
-  Today a marker missing from the latest draw disappears. Each view's `value`,
-  `unit`, `status`, `ranges` and `tested_at` come from that marker's most recent
-  point, so a marker last measured in an earlier draw shows that draw's date.
-- **Order of history:** chronological by `tested_at`. This is the store's sort-key
+- **Order:** points are chronological by `tested_at`. This is the store's sort-key
   order, so no re-sorting is needed.
-- **Unit guard:** points whose unit differs from the latest point's unit are left out
-  of `history`. We don't convert. The fixtures have no such points; the guard
+- **Partial draws:** a marker absent from a draw has no point for it. No
+  interpolation.
+- **Ranges and status:** each point carries the values stored with its draw.
+- **Unit guard:** `unit` is the latest point's unit. Earlier points with a different
+  unit are left out, not converted. The fixtures have no such points; the guard
   stops a chart from plotting mg/dL and mmol/L on one axis.
-- **Ranges:** each point carries the ranges stored with its draw.
-- Sorting of views (category, then name) is unchanged.
 
 ## Client
 
@@ -70,7 +82,7 @@ One reusable function, which Task 2's wearable charts will also use:
 lineChart(canvas, {
   points: [{ label: "1 Oct 2024", value: 125, ranges?: {...}, status?: "optimal" }],
   unit: "mg/dL",
-  bands: true | false,   // draw per-point reference bands behind the line
+  bands: true | false,   // colour the background by reference band
 })
 ```
 
@@ -84,65 +96,84 @@ lineChart(canvas, {
   existing `--optimal`, `--good` and `--improve` colours from `styles.css` at about
   18% opacity, so the line and points stay readable on top.
   - The plugin loops over whatever bands a point's ranges contain, so a band
-    split into two regions (say, good above and below optimal) needs no special
-    case. In today's data each band is one contiguous region.
+    split into two regions needs no special case. In today's data each band is one
+    contiguous region.
   - Any y-range not covered by a band is shaded as improve. This matches
     `band_for` in `ingest.py`, which classifies out-of-band values as `improve`.
-    Example: BUN below 10 on an `in_range` marker, so a marker like that shows red
-    above and below its bands.
+    Example: BUN below 10 on an `in_range` marker.
   - Bands are drawn per point slice of the x axis. When ranges change between
     draws, the bands visibly step.
-  - Colour is never the only signal. The tooltip names the band in words.
 - **Y axis:** fits the data, padded so the nearest band edges are visible. It does
   not cover the full band span, which can be 0–400 and would flatten the line.
-- **Tooltip:** date, value with unit, and band label ("Optimal", "Good", "Needs
-  work") when a status is present.
+- **Tooltip:** date, value with unit, and band label in words ("Optimal", "Good",
+  "Needs work"), so colour is never the only signal.
 - **Points:** coloured by status.
 
 ### Changes to `app/static/app.js`
 
 - `renderMarker` adds a `History` button (`aria-expanded`, `aria-controls`) under the
-  scale, plus a hidden chart container.
-- On the first click, the chart is created from `result.history`. Later clicks only
-  toggle visibility. Nothing chart-related is built on page load.
-- If the history has 1 point, the panel shows "Only one result so far. Your trend
+  scale, plus a hidden panel.
+- On the first expand of any card, the client calls `/api/biomarkers/history` and
+  keeps the promise in a module-level cache. All cards share it, so there's one
+  request per page load at most.
+- While the request is in flight, the panel shows "Loading history…". If it fails,
+  the panel shows "Couldn't load history." and a retry button, which clears the
+  cache.
+- The chart is built on that card's first open. Later clicks only toggle
+  visibility.
+- If the marker has 1 point, the panel shows "Only one result so far. Your trend
   appears after your next test." instead of a chart.
 - The card header (name, latest value, unit, status) is unchanged.
+- On sign-out, the cache is cleared so the next member never sees the previous
+  member's history.
 
 ### Changes to `index.html` and `styles.css`
 
 - Add `<script src="/static/charts.js">` between `perf.js` and `app.js`.
-- Add styles for the toggle button and a fixed-height chart container (~180px).
+- Add styles for the toggle button, the status messages and a fixed-height chart
+  container (~180px).
 
-## Tests (`tests/test_home.py`)
+## Tests (`tests/test_biomarker_history.py`)
 
-Using the existing `home_data` fixture style, with direct `store.put` calls:
+Using the `home_data`-style fixtures with direct `store.put`:
 
-1. History is chronological and its last point matches the card's value and
-   `tested_at`.
-2. Each point keeps its own draw's ranges and status. Example: draw 1 has different
-   ranges from draw 2, and the history shows both.
-3. A partial draw shortens history only for the markers it omits.
-4. A marker absent from the latest draw is still listed, with its last value and
-   date.
-5. A point with a mismatched unit is left out of history.
+1. The endpoint requires a valid session (401 without one).
+2. Points are chronological, and the last point matches `/api/home`'s value and
+   `tested_at` for that marker.
+3. Each point keeps its own draw's ranges and status, including when ranges
+   changed between draws.
+4. A partial draw shortens history only for the markers it omits.
+5. A point with a mismatched unit is left out.
 6. Member isolation: user-2's draws never appear in user-1's history.
-7. The existing tests pass unchanged.
+7. A member with no draws gets `biomarkers: []`.
+8. `/api/home`'s response is unchanged, so the existing tests pass untouched.
 
-## Performance
+## Scaling
 
-- Expected `/api/home` cost: 2 store calls, ≤6 result documents decoded, response
-  around 30 markers × ≤6 points.
-- Verify with `scripts/bench.py` for all four member emails after implementing,
-  and record the p95 numbers in NOTES.md.
+Measured on a scratch DB (typed query, p50 of 20 runs):
+
+| Draws | Read + validate | History payload |
+|---|---|---|
+| 6 | 0.8 ms | ~37 KB |
+| 30 | 4.3 ms | ~188 KB |
+| 100 | 14.8 ms | ~629 KB |
+
+- `/api/home`: flat at any draw count, because it reads only the latest draw.
+- History endpoint: linear in draws. It's off the budgeted path and runs once per
+  page. At 100 draws it would take tens of ms and send around 600 KB. That's
+  acceptable for an on-demand load but not ideal.
+- Next step if draw counts grow (for NOTES.md, not built now): a per-marker history
+  copy written at ingest, `history:{user_id}` with sk = `biomarker_id` and compact
+  points. Reads become one small doc per marker. The cost moves to writes, and
+  bootstrap plus draw ingest would both need to maintain it.
 
 ## How this sets up Task 2
 
 - The chart function already takes a plain `{points, unit}` series with gaps.
   Wearables need no new chart code, only `bands: false`.
-- `/api/home` keeps its "one request, few store calls" shape. Task 2 adds a
-  `wearables` block read from its own partition with a bounded range query.
-- Task 2's storage layout is decided in its own spec, not here.
+- Task 2 requires wearable chart data inside `/api/home`. Leaving biomarker history
+  out of `/api/home` keeps that budget free for the wearables block.
+- Task 2's storage layout is decided in its own spec.
 
 ## Out of scope
 
@@ -154,7 +185,8 @@ Using the existing `home_data` fixture style, with direct `store.put` calls:
 
 - Each point's ranges and status are as recorded at draw time. Today's definition
   may differ.
-- Markers are listed even if missing from the latest draw.
+- History is loaded on demand, not with the home screen. Trade-off: the first
+  expand waits on one extra request.
 - Points with a unit that doesn't match the latest are left out of history, not
   converted.
 - Equal x-spacing between draws is acceptable at this data density.
