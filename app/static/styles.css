@@ -401,3 +401,11 @@ md-elevated-card.marker:not(:defined) { box-shadow: 0 1px 3px rgb(0 0 0 / 0.15);
   color: var(--muted);
   font-size: 0.8125rem;
 }
+
+/* ---- wearables ---- */
+
+.wearables-source { margin: 0.35rem 0 0; }
+
+.wearable-head { padding: 1rem 1rem 0; }
+
+.wearable-body { padding: 0.5rem 1rem 1rem; }

@@ -81,7 +81,108 @@ Spec: [docs/superpowers/specs/2026-10-13-biomarker-history-design.md](docs/super
 
 ## Task 2: Wearable history
 
-Not started.
+Spec: [docs/superpowers/specs/2026-10-14-wearable-history-design.md](docs/superpowers/specs/2026-10-14-wearable-history-design.md)
+
+### Decisions
+
+- **A repeated delivery for the same day replaces the earlier one.** The later
+  delivery is a full corrected copy with a distinct `upload_id`. In the fixtures,
+  Garmin's `_r2` files correct resting HR (64→67, 58→61).
+  - The replaced `upload_id` is recorded on the day as superseded. If an original
+    is replayed after its correction, it is ignored (`stored: false`) and doesn't
+    undo the correction.
+  - Re-sending the current `upload_id` is a harmless no-op.
+  - "Later" means **later revision**, not later arrival. Providers mark a resend
+    as `{upload_id}_rN`. If `_r2` arrives before its original (queues and
+    retries reorder), the original is ignored.
+    - Found by the final code review and covered by a test.
+    - Assumes the `_rN` convention seen in the fixtures. An unrecognised id
+      falls back to arrival order.
+  - Rejected alternatives: merging field by field (a correction could never clear
+    a bad value) and first-wins (it throws away the provider's corrections).
+- **Only a normalised daily summary is stored, not the raw delivery.** Raw
+  deliveries are ~80 KB each (1,440 per-minute HR samples). Raw data could live in
+  a separate partition that `/api/home` never reads, so the budget isn't the reason.
+  The reasons are size (~29 MB for the fixtures) and that the task only needs
+  daily values.
+  - Cost: changing how a metric is derived later means providers must resend.
+
+### Storage layout
+
+| Partition key | Sort key | Document |
+|---|---|---|
+| `wearables:{user_id}` | `YYYY-MM-DD` | `WearableDayDocument`: provider, upload_id, received_at, the 3 metrics (null when absent), superseded upload ids |
+
+- **Cheap:** a member's latest 30 days. `keys()` (sort keys only, no decoding) finds
+  the latest date, then one range `query` reads up to 30 docs of about 250 bytes.
+  `/api/home` adds exactly 2 store calls.
+- **Expensive or impossible:**
+  - anything across members (`scan`)
+  - intra-day detail (raw samples aren't kept)
+  - re-deriving a metric (providers would have to resend)
+- `keys()` grows by one short string per day, about 365 a year. If that ever
+  matters, a per-member "latest date" pointer written at ingest replaces it.
+
+### Other decisions
+
+- **Missing values are gaps in the line.** No interpolation and no zero-filling.
+  Each chart says "No data on N of 30 days."
+- **A metric the provider doesn't supply** (Whoop steps) shows "Steps data isn't
+  available from Whoop." instead of an empty chart. A supported metric with no
+  values in the window says "No … recorded in the last 30 days."
+- **The window ends on the member's latest delivery, not today**, as briefed. A
+  late delivery for an older day never moves the window back.
+- **Steps** are the sum of the 15-minute samples. Null samples are skipped, and if
+  every sample is null the day has no value.
+- **Whoop sleep efficiency** is a 0–1 fraction, multiplied by 100.
+- **Values are normalised at ingest** (bpm, steps, %), so the client never
+  converts units. Non-numeric values (strings, booleans) become null.
+- **Unknown providers are rejected with a 400**, and nothing is stored.
+- **Wearables sit above the biomarkers, always visible** (no expand), because the
+  data already arrives with `/api/home`.
+
+### Verification
+
+- `scripts/test`: 76 passed, 0 xfailed.
+  - 7 normaliser unit tests in `tests/test_wearable_normalise.py`.
+  - 14 HTTP tests in `tests/test_wearables.py`: provider mappings, unknown
+    provider, correction, replay, a correction arriving before its original,
+    resend, the 30-day window with gaps and a late old day, isolation,
+    no-wearables.
+  - `test_home_without_draws` now also clears wearables and expects
+    `"wearables": None`.
+- `scripts/lint`: clean.
+- After bootstrap and ingesting all 4 members, 300 day docs are stored
+  (90 + 79 + 90 + 41; the two Garmin `_r2` files replaced in place).
+- `/api/home` p95 (p50): james 10.2 ms (6.7), priya 8.7 ms (6.1), tom 6.7 ms
+  (5.4), sofia 7.0 ms (5.5). All PASS.
+- Store calls for one `/api/home` (tom):
+  `get user` → `keys results:user-3` → `get` latest draw → `query biomarker` →
+  `keys wearables:user-3` → `query wearables:user-3 start=2026-08-02`. No `scan`.
+- Headless Playwright:
+  - Oura shows 3 charts. Whoop shows gaps ("No data on 4 of 30 days") and the
+    "Steps data isn't available" copy. Fitbit shows sleep gaps (11 of 30).
+  - Wearable cards are cleared on sign-out.
+  - An all-null mock shows the "No … recorded" copy.
+  - No page errors.
+  - Task 1's history walkthrough and member-isolation check still pass.
+
+- **Client race fixed:** if a member signed out while their `/api/home` was
+  still in flight, a late response could render their data under the next member.
+  A session counter now drops stale responses. Reproduced and verified headless.
+
+### Left out / next
+
+- Raw sample storage and intra-day charts.
+- Timezone handling beyond the provider's `calendar_date`.
+- Checking `member.email` against the member record. Only `reference_id` is
+  checked, as in the shell.
+- Members who switch provider mid-window: `provider` and `supported` come from
+  the latest day.
+- Ingest auth (unchanged, as briefed).
+- Concurrent deliveries for the same day aren't atomic (read then write). Two
+  simultaneous posts could lose a superseded id. A conditional write would fix it;
+  the store has none.
 
 ## How I used AI tools
 
@@ -92,3 +193,14 @@ Not started.
   periods, lazy fetch over prefetch.
 - Claude benchmarked decode cost at 6, 30 and 100 draws on a scratch DB to ground
   the scaling decision.
+- Task 2 followed the same workflow: brainstorm (you chose replace-on-repeat and
+  summary-only storage), then spec, then plan, then native TDD execution.
+  - Claude profiled the four providers' fixtures first: gaps, null `sleep_data`,
+    Whoop's fraction and missing steps, Garmin's `_r2` corrections.
+  - It verified the UI with headless Playwright screenshots and checked the
+    store-call log for `/api/home`.
+- Mistakes worth noting:
+  - I pushed Task 1 straight to `main` once without approval. It was reverted to
+    a PR, and I now work only on branches with one PR per task.
+  - `ruff format` rewrites Python blocks inside the docs, which mangled one plan
+    snippet. It was caught by the test run and fixed by hand.

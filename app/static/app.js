@@ -209,24 +209,131 @@ function renderResults(results) {
   }
 }
 
+const PROVIDER_NAME = { oura: "Oura", garmin: "Garmin", fitbit: "Fitbit", whoop: "Whoop" };
+
+function formatDay(isoDate) {
+  // Date-only strings parse as UTC midnight; pin to local midnight instead so
+  // the label never slips to the previous day.
+  return new Date(`${isoDate}T00:00:00`).toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+  });
+}
+
+/* Wearable history arrives with /api/home, so these charts draw immediately.
+   Each card is attached before its chart is created so Chart.js measures a
+   real container. */
+function renderWearables(wearables) {
+  const root = el("wearables");
+  root.replaceChildren();
+  root.hidden = false;
+
+  const heading = document.createElement("h2");
+  heading.className = "category";
+  heading.textContent = "Last 30 days";
+  root.append(heading);
+
+  if (!wearables) {
+    root.append(note("No wearable data yet. Connect a device to see your last 30 days."));
+    return;
+  }
+
+  const provider = PROVIDER_NAME[wearables.provider] ?? wearables.provider;
+  const source = document.createElement("p");
+  source.className = "lede wearables-source";
+  source.textContent = `From ${provider} · ${formatDay(wearables.start)} – ${formatDay(wearables.end)}`;
+  root.append(source);
+
+  for (const series of wearables.series) renderWearableCard(root, series, provider);
+}
+
+function renderWearableCard(root, series, provider) {
+  const card = document.createElement("md-elevated-card");
+  card.className = "marker wearable";
+  root.append(card);
+
+  const present = series.points.filter((p) => p.value != null);
+  const latest = present.at(-1);
+
+  const head = document.createElement("div");
+  head.className = "marker-head wearable-head";
+  const name = document.createElement("span");
+  name.className = "marker-name";
+  name.textContent = series.label;
+  head.append(name);
+  if (series.supported && latest) {
+    const reading = document.createElement("span");
+    const value = document.createElement("span");
+    value.className = "marker-value";
+    value.textContent = latest.value.toLocaleString();
+    const unit = document.createElement("span");
+    unit.className = "marker-unit";
+    unit.textContent = series.unit;
+    reading.append(value, unit);
+    head.append(reading);
+  }
+
+  const body = document.createElement("div");
+  body.className = "wearable-body";
+  card.append(head, body);
+
+  if (!series.supported) {
+    body.append(note(`${series.label} data isn't available from ${provider}.`));
+    return;
+  }
+  if (!present.length) {
+    body.append(note(`No ${series.label.toLowerCase()} recorded in the last 30 days.`));
+    return;
+  }
+
+  const wrap = document.createElement("div");
+  wrap.className = "history-chart";
+  const canvas = document.createElement("canvas");
+  canvas.setAttribute("role", "img");
+  canvas.setAttribute(
+    "aria-label",
+    `${series.label}, last 30 days, ${present.length} days with data`
+  );
+  wrap.append(canvas);
+  body.append(wrap);
+
+  const missing = series.points.length - present.length;
+  if (missing) body.append(note(`No data on ${missing} of ${series.points.length} days.`));
+
+  lineChart(canvas, {
+    unit: series.unit,
+    points: series.points.map((p) => ({ label: formatDay(p.date), value: p.value })),
+  });
+}
+
+/* Bumped on every sign-in and sign-out. A /api/home response that lands after
+   the member changed belongs to the previous member and is dropped. */
+let session = 0;
+
 async function showDashboard(user) {
+  const mine = ++session;
   historyRequest = null;
   el("signin").hidden = true;
   el("dashboard").hidden = false;
   el("whoami").textContent = user.name;
 
   const { data, meta } = await api("/api/home");
+  if (mine !== session) return;
   renderResults(data.results);
+  renderWearables(data.wearables);
 
   const latest = meta.tested_at || data.results[0]?.tested_at;
   el("drawn").textContent = latest ? `Drawn ${formatDate(latest)}` : "";
 }
 
 function showSignIn(message) {
+  session++;
   el("dashboard").hidden = true;
   // Drop the previous member's cards and charts so the next member never sees
   // them while their own home request is in flight.
   el("results").replaceChildren();
+  el("wearables").replaceChildren();
+  el("wearables").hidden = true;
   el("drawn").textContent = "";
   el("signin").hidden = false;
   const error = el("signin-error");

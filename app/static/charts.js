@@ -139,7 +139,7 @@
               label(item) {
                 const p = points[item.dataIndex];
                 const band = BAND_LABEL[p.status];
-                return `${p.value} ${unit}${band ? ` · ${band}` : ""}`;
+                return `${p.value.toLocaleString()} ${unit}${band ? ` · ${band}` : ""}`;
               },
             },
           },

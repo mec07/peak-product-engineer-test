@@ -7,6 +7,8 @@ from app.models import BiomarkerDefinition, BiomarkerResult, Ranges, ResultsDocu
 def home_data(store):
     for key in list(store.keys("results:user-1")):
         store.delete("results:user-1", key)
+    for key in list(store.keys("wearables:user-1")):
+        store.delete("wearables:user-1", key)
     ranges = Ranges(
         optimal={"min": 10, "max": 20},
         good={"min": 5, "max": 25},
@@ -65,7 +67,7 @@ def test_home_without_draws(signed_in, home_data):
     response = signed_in.get("/api/home")
     assert response.status_code == 200
     assert response.json() == {
-        "data": {"results": []},
+        "data": {"results": [], "wearables": None},
         "meta": {"count": 0, "categories": [], "tested_at": None},
     }
 
