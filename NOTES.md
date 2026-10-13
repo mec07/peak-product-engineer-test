@@ -43,6 +43,24 @@ Spec: [docs/superpowers/specs/2026-10-13-biomarker-history-design.md](docs/super
 - Draws are plotted evenly spaced on a category axis. That's acceptable at roughly
   6-monthly intervals and avoids a Chart.js date adapter.
 
+### Verification
+
+- `scripts/test`: 56 passed, 1 xfailed (the Task 2 wearable placeholder). 9 of those
+  are new in `tests/test_biomarker_history.py`. `scripts/lint` is clean.
+- `/api/home` p95 (code unchanged): james 28.3 ms, priya 14.3–36.4 ms, tom 32.2 ms,
+  sofia 25.0 ms.
+  - Priya's 36.4 ms was a one-off during a busy headless-browser session. Three
+    reruns gave 20.2, 17.9 and 14.3 ms. Bench is noisy on a loaded laptop.
+- `/api/biomarkers/history` (tom, 6 draws, not budgeted): p50 12.4 ms, p95 21.8 ms,
+  13.8 KB.
+- UI checked with headless Playwright:
+  - Only `/api/me`, `/api/auth/login` and `/api/home` fire on load.
+  - One history request across several card opens.
+  - Signing in as another member refetches, so no data leaks between members.
+  - A failed request shows "Try again", and retrying works.
+  - The one-point copy shows.
+  - The LDL chart shows the band step at the March 2026 range change.
+
 ### Next steps (not built)
 
 - If draw counts grow well past 30: write a per-marker history copy at ingest,
