@@ -219,6 +219,10 @@ async function showDashboard(user) {
 
 function showSignIn(message) {
   el("dashboard").hidden = true;
+  // Drop the previous member's cards and charts so the next member never sees
+  // them while their own home request is in flight.
+  el("results").replaceChildren();
+  el("drawn").textContent = "";
   el("signin").hidden = false;
   const error = el("signin-error");
   error.hidden = !message;
