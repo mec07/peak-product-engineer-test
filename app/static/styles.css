@@ -166,6 +166,19 @@ md-elevated-card.marker:not(:defined) { box-shadow: 0 1px 3px rgb(0 0 0 / 0.15);
   gap: 0.35rem;
 }
 
+.history-cue {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0.4rem;
+  padding: 0.1rem 0.25rem 0.1rem 0.6rem;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  color: var(--ink);
+  font-size: 0.8125rem;
+}
+
+.history-toggle:hover .history-cue { border-color: var(--muted); }
+
 .chevron {
   color: var(--muted);
   transition: transform 150ms ease;

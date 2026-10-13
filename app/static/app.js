@@ -141,7 +141,7 @@ function renderMarker(result) {
         <span class="marker-reading">
           <span class="marker-value"></span><span class="marker-unit"></span>
           <span class="marker-status status-${result.status}"></span>
-          <md-icon class="chevron" aria-hidden="true">expand_more</md-icon>
+          <span class="history-cue">History<md-icon class="chevron" aria-hidden="true">expand_more</md-icon></span>
         </span>
       </span>
       <span class="scale-wrap">
