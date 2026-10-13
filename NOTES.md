@@ -92,6 +92,12 @@ Spec: [docs/superpowers/specs/2026-10-14-wearable-history-design.md](docs/superp
     is replayed after its correction, it is ignored (`stored: false`) and doesn't
     undo the correction.
   - Re-sending the current `upload_id` is a harmless no-op.
+  - "Later" means **later revision**, not later arrival. Providers mark a resend
+    as `{upload_id}_rN`. If `_r2` arrives before its original (queues and
+    retries reorder), the original is ignored.
+    - Found by the final code review and covered by a test.
+    - Assumes the `_rN` convention seen in the fixtures. An unrecognised id
+      falls back to arrival order.
   - Rejected alternatives: merging field by field (a correction could never clear
     a bad value) and first-wins (it throws away the provider's corrections).
 - **Only a normalised daily summary is stored, not the raw delivery.** Raw
@@ -137,11 +143,12 @@ Spec: [docs/superpowers/specs/2026-10-14-wearable-history-design.md](docs/superp
 
 ### Verification
 
-- `scripts/test`: 75 passed, 0 xfailed.
+- `scripts/test`: 76 passed, 0 xfailed.
   - 7 normaliser unit tests in `tests/test_wearable_normalise.py`.
-  - 16 HTTP tests in `tests/test_wearables.py`: provider mappings, unknown
-    provider, correction, replay, resend, the 30-day window with gaps and a late
-    old day, isolation, no-wearables.
+  - 14 HTTP tests in `tests/test_wearables.py`: provider mappings, unknown
+    provider, correction, replay, a correction arriving before its original,
+    resend, the 30-day window with gaps and a late old day, isolation,
+    no-wearables.
   - `test_home_without_draws` now also clears wearables and expects
     `"wearables": None`.
 - `scripts/lint`: clean.
@@ -160,6 +167,10 @@ Spec: [docs/superpowers/specs/2026-10-14-wearable-history-design.md](docs/superp
   - No page errors.
   - Task 1's history walkthrough and member-isolation check still pass.
 
+- **Client race fixed:** if a member signed out while their `/api/home` was
+  still in flight, a late response could render their data under the next member.
+  A session counter now drops stale responses. Reproduced and verified headless.
+
 ### Left out / next
 
 - Raw sample storage and intra-day charts.
@@ -169,6 +180,9 @@ Spec: [docs/superpowers/specs/2026-10-14-wearable-history-design.md](docs/superp
 - Members who switch provider mid-window: `provider` and `supported` come from
   the latest day.
 - Ingest auth (unchanged, as briefed).
+- Concurrent deliveries for the same day aren't atomic (read then write). Two
+  simultaneous posts could lose a superseded id. A conditional write would fix it;
+  the store has none.
 
 ## How I used AI tools
 

@@ -306,13 +306,19 @@ function renderWearableCard(root, series, provider) {
   });
 }
 
+/* Bumped on every sign-in and sign-out. A /api/home response that lands after
+   the member changed belongs to the previous member and is dropped. */
+let session = 0;
+
 async function showDashboard(user) {
+  const mine = ++session;
   historyRequest = null;
   el("signin").hidden = true;
   el("dashboard").hidden = false;
   el("whoami").textContent = user.name;
 
   const { data, meta } = await api("/api/home");
+  if (mine !== session) return;
   renderResults(data.results);
   renderWearables(data.wearables);
 
@@ -321,6 +327,7 @@ async function showDashboard(user) {
 }
 
 function showSignIn(message) {
+  session++;
   el("dashboard").hidden = true;
   // Drop the previous member's cards and charts so the next member never sees
   // them while their own home request is in flight.
