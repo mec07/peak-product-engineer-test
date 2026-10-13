@@ -57,17 +57,22 @@ Response:
 class HistoryPoint(BaseModel):
     tested_at: str
     value: float
-    status: str                  # as recorded at the draw
+    status: str  # as recorded at the draw
+
 
 class RangePeriod(BaseModel):
-    from_tested_at: str          # first point these ranges apply to
+    from_tested_at: str  # first point these ranges apply to
     ranges: Ranges
+
 
 class BiomarkerHistory(BaseModel):
     biomarker_id: str
     unit: str
-    points: list[HistoryPoint]   # oldest first
-    range_periods: list[RangePeriod]  # oldest first; a new entry only when ranges change
+    points: list[HistoryPoint]  # oldest first
+    range_periods: list[
+        RangePeriod
+    ]  # oldest first; a new entry only when ranges change
+
 
 class HistoryPayload(BaseModel):
     biomarkers: list[BiomarkerHistory]

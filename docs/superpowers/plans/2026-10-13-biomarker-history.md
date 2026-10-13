@@ -107,7 +107,9 @@ def add_draw(store):
         store.put(
             f"results:{user_id}",
             tested_at,
-            ResultsDocument(user_id=user_id, tested_at=tested_at, results=list(results)),
+            ResultsDocument(
+                user_id=user_id, tested_at=tested_at, results=list(results)
+            ),
         )
 
     return add
