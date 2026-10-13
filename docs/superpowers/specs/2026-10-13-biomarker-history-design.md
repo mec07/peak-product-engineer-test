@@ -1,7 +1,7 @@
 # Task 1: Biomarker history — design
 
 Status: approved in chat. Layout: expandable card; history is fetched when a card is
-first expanded. Task 2 (wearables) builds on this.
+first expanded. Both chart types are limited to 30 points. Task 2 (wearables) builds on this.
 
 ## Goal
 
@@ -32,13 +32,24 @@ Signed-in member only (`Depends(current_user)`), same envelope as the other rout
 It's fetched by the client the first time any card is expanded, then cached for the
 page's lifetime, so expanding more cards doesn't re-fetch.
 
-Store access: one call, `store.query("results:{user_id}", ResultsDocument)`, which
-returns every draw oldest first. No `scan`.
+Store access: limited to the **latest 30 draws**, the same 30-point limit Task 2 uses
+for wearable days.
 
-Why one endpoint for all markers rather than `/biomarkers/{id}/history`: data is
-partitioned by draw, not by marker, so one marker's history means reading every
-draw anyway. Reading them once and returning all markers costs the same as one
-marker, and every later expand is then instant.
+1. `store.keys("results:{user_id}")` lists sort keys only, with no document decoding.
+2. `store.query("results:{user_id}", ResultsDocument, start=keys[-30])` decodes at
+   most 30 draws, oldest first.
+
+No `scan`. Cost is capped at about 4 ms of decoding (measured at 30 draws),
+however long a member's history gets. `meta.truncated` is `true` when older draws
+exist, and the chart then says "Showing your last 30 tests".
+
+Why one endpoint for all markers rather than `/biomarkers/{id}/history`: each draw
+document (`results:{user_id}` / `tested_at`) holds every marker measured that day,
+about 30 results in one ~7 KB document. One marker's history therefore means
+reading every draw document and discarding the other 29 markers. A per-marker
+endpoint would repeat that read on every expand. Reading the draws once returns
+all markers for the same cost, and later expands are instant. Making per-marker
+reads cheap needs a different key layout (see Scaling).
 
 Response:
 
@@ -59,7 +70,7 @@ class HistoryPayload(BaseModel):
     biomarkers: list[BiomarkerHistory]
 ```
 
-`meta`: `{"draws": <number of draws read>}`.
+`meta`: `{"draws": <number of draws read>, "truncated": <bool>}`.
 
 ### Rules
 
@@ -146,7 +157,8 @@ Using the `home_data`-style fixtures with direct `store.put`:
 5. A point with a mismatched unit is left out.
 6. Member isolation: user-2's draws never appear in user-1's history.
 7. A member with no draws gets `biomarkers: []`.
-8. `/api/home`'s response is unchanged, so the existing tests pass untouched.
+8. With 31 draws, only the latest 30 are returned and `meta.truncated` is `true`.
+9. `/api/home`'s response is unchanged, so the existing tests pass untouched.
 
 ## Scaling
 
@@ -159,9 +171,8 @@ Measured on a scratch DB (typed query, p50 of 20 runs):
 | 100 | 14.8 ms | ~629 KB |
 
 - `/api/home`: flat at any draw count, because it reads only the latest draw.
-- History endpoint: linear in draws. It's off the budgeted path and runs once per
-  page. At 100 draws it would take tens of ms and send around 600 KB. That's
-  acceptable for an on-demand load but not ideal.
+- History endpoint: capped at 30 draws, so at most about 4 ms of decoding and about
+  190 KB. It's off the budgeted path and runs once per page.
 - Next step if draw counts grow (for NOTES.md, not built now): a per-marker history
   copy written at ingest, `history:{user_id}` with sk = `biomarker_id` and compact
   points. Reads become one small doc per marker. The cost moves to writes, and
