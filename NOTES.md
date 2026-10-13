@@ -81,7 +81,25 @@ Spec: [docs/superpowers/specs/2026-10-13-biomarker-history-design.md](docs/super
 
 ## Task 2: Wearable history
 
-Not started.
+Spec: [docs/superpowers/specs/2026-10-14-wearable-history-design.md](docs/superpowers/specs/2026-10-14-wearable-history-design.md)
+
+### Decisions
+
+- **A repeated delivery for the same day replaces the earlier one.** The later
+  delivery is a full corrected copy with a distinct `upload_id`. In the fixtures,
+  Garmin's `_r2` files correct resting HR (64→67, 58→61).
+  - The replaced `upload_id` is recorded on the day as superseded. If an original
+    is replayed after its correction, it is ignored (`stored: false`) and doesn't
+    undo the correction.
+  - Re-sending the current `upload_id` is a harmless no-op.
+  - Rejected alternatives: merging field by field (a correction could never clear
+    a bad value) and first-wins (it throws away the provider's corrections).
+- **Only a normalised daily summary is stored, not the raw delivery.** Raw
+  deliveries are ~80 KB each (1,440 per-minute HR samples). Raw data could live in
+  a separate partition that `/api/home` never reads, so the budget isn't the reason.
+  The reasons are size (~29 MB for the fixtures) and that the task only needs
+  daily values.
+  - Cost: changing how a metric is derived later means providers must resend.
 
 ## How I used AI tools
 
