@@ -312,3 +312,17 @@ button.quiet:hover { color: var(--ink); }
   position: relative;
   height: 180px;
 }
+
+.history-toggle {
+  margin-top: 0.6rem;
+  padding: 0.2rem 0.6rem;
+  font-size: 0.8125rem;
+}
+
+.history { margin-top: 0.75rem; }
+
+.history-note {
+  margin: 0.5rem 0;
+  color: var(--muted);
+  font-size: 0.8125rem;
+}

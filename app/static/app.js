@@ -23,6 +23,91 @@ function formatDate(iso) {
   });
 }
 
+function formatShortDate(iso) {
+  return new Date(iso).toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+/* History for every marker arrives in one response (each draw holds all its
+   markers), fetched on the first expand and shared by every card after that.
+   A failed request is dropped so the next expand tries again. */
+let historyRequest = null;
+
+function loadHistory() {
+  historyRequest ??= api("/api/biomarkers/history")
+    .then(({ data, meta }) => ({
+      byId: new Map(data.biomarkers.map((h) => [h.biomarker_id, h])),
+      truncated: meta.truncated,
+    }))
+    .catch((err) => {
+      historyRequest = null;
+      throw err;
+    });
+  return historyRequest;
+}
+
+function note(text) {
+  const p = document.createElement("p");
+  p.className = "history-note";
+  p.textContent = text;
+  return p;
+}
+
+async function renderHistory(panel, result) {
+  panel.dataset.rendered = "loading";
+  panel.replaceChildren(note("Loading history…"));
+
+  let history;
+  try {
+    history = await loadHistory();
+  } catch {
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.className = "quiet";
+    retry.textContent = "Try again";
+    retry.addEventListener("click", () => renderHistory(panel, result));
+    panel.replaceChildren(note("Couldn't load history."), retry);
+    delete panel.dataset.rendered;
+    return;
+  }
+
+  const marker = history.byId.get(result.biomarker_id);
+  const points = marker?.points ?? [];
+  if (points.length < 2) {
+    panel.replaceChildren(
+      note("Only one result so far. Your trend appears after your next test.")
+    );
+    panel.dataset.rendered = "done";
+    return;
+  }
+
+  const wrap = document.createElement("div");
+  wrap.className = "history-chart";
+  const canvas = document.createElement("canvas");
+  canvas.setAttribute("role", "img");
+  canvas.setAttribute("aria-label", `${result.name} history, ${points.length} results`);
+  wrap.append(canvas);
+  panel.replaceChildren(wrap);
+  if (history.truncated) panel.append(note("Showing your last 30 tests."));
+
+  lineChart(canvas, {
+    unit: marker.unit,
+    points: points.map((p) => ({
+      label: formatShortDate(p.tested_at),
+      value: p.value,
+      status: p.status,
+    })),
+    periods: marker.range_periods.map((r) => ({
+      startIndex: points.findIndex((p) => p.tested_at === r.from_tested_at),
+      ranges: r.ranges,
+    })),
+  });
+  panel.dataset.rendered = "done";
+}
+
 /* The scale spans the full width of every band the marker defines. Bands are
    laid out in value order, not in optimal/good/improve order, so that the tick
    sits in a place that means something. */
@@ -68,6 +153,8 @@ function renderMarker(result) {
       <div class="tick" style="left:${offset}%"></div>
     </div>
     <div class="scale-labels"><span class="low"></span><span class="high"></span></div>
+    <button type="button" class="quiet history-toggle" aria-expanded="false">History</button>
+    <div class="history" hidden></div>
   `;
 
   node.querySelector(".marker-name").textContent = result.name;
@@ -77,6 +164,18 @@ function renderMarker(result) {
     BAND_LABEL[result.status] ?? result.status;
   node.querySelector(".low").textContent = low;
   node.querySelector(".high").textContent = high;
+
+  const toggle = node.querySelector(".history-toggle");
+  const panel = node.querySelector(".history");
+  panel.id = `history-${result.biomarker_id}`;
+  toggle.setAttribute("aria-controls", panel.id);
+  toggle.addEventListener("click", () => {
+    const open = panel.hidden;
+    panel.hidden = !open;
+    toggle.setAttribute("aria-expanded", String(open));
+    // Unhide first so Chart.js measures a visible container.
+    if (open && !panel.dataset.rendered) renderHistory(panel, result);
+  });
   return node;
 }
 
@@ -106,6 +205,7 @@ function renderResults(results) {
 }
 
 async function showDashboard(user) {
+  historyRequest = null;
   el("signin").hidden = true;
   el("dashboard").hidden = false;
   el("whoami").textContent = user.name;
@@ -148,6 +248,7 @@ el("email").addEventListener("keydown", (event) => {
 
 el("signout-button").addEventListener("click", async () => {
   await api("/api/auth/logout", { method: "POST" });
+  historyRequest = null;
   el("email").value = "";
   showSignIn();
 });
