@@ -76,6 +76,23 @@ class ResultsDocument(BaseModel):
     results: list[BiomarkerResult]
 
 
+class WearableDayDocument(BaseModel):
+    """pk=f"wearables:{user_id}", sk=date (YYYY-MM-DD)
+
+    The normalised summary of one provider day. Raw samples are not kept.
+    """
+
+    user_id: str
+    date: str
+    provider: str
+    upload_id: str
+    received_at: str
+    resting_hr_bpm: float | None = None
+    steps: int | None = None
+    sleep_efficiency_pct: float | None = None
+    superseded_upload_ids: list[str] = Field(default_factory=list)
+
+
 # -------------------------------------------------------- response & resquest models
 
 
@@ -197,3 +214,5 @@ class WearableBody(BaseModel):
 
 class WearablePayload(BaseModel):
     stored: bool
+    date: str
+    replaced_upload_id: str | None = None

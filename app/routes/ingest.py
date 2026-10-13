@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..models import (
@@ -10,9 +12,11 @@ from ..models import (
     Member,
     ResultsDocument,
     WearableBody,
+    WearableDayDocument,
     WearablePayload,
 )
 from ..store import Store, get_store
+from ..wearables import UnsupportedProvider, normalise
 
 # Ingest is unauthenticated for this exercise. Production endpoints must
 # authenticate the sender and authorize writes to the requested member.
@@ -29,11 +33,60 @@ def ingest_member(user_id: str, store: Store = Depends(get_store)) -> Member:
 
 
 @router.post("/wearables", response_model=Envelope[WearablePayload])
-def add_wearable_day(body: WearableBody, member: Member = Depends(ingest_member)):
-    """Receive one provider day. Persistence is part of task 2."""
+def add_wearable_day(
+    body: WearableBody,
+    member: Member = Depends(ingest_member),
+    store: Store = Depends(get_store),
+):
+    """Store one provider day as a normalised summary.
+
+    A later delivery for the same day replaces the earlier one: providers resend a
+    whole corrected day under a new upload_id. The replaced id is remembered, so a
+    replay of the original can't undo the correction.
+    """
     if body.member.reference_id != member.id:
         raise HTTPException(status_code=400, detail="Payload belongs to another member")
-    return Envelope(data=WearablePayload(stored=False))
+
+    try:
+        metrics = normalise(body.provider, body.data.model_dump(mode="json"))
+    except UnsupportedProvider:
+        raise HTTPException(
+            status_code=400, detail=f"Unsupported provider: {body.provider}"
+        ) from None
+
+    partition = f"wearables:{member.id}"
+    day = body.data.calendar_date.isoformat()
+    upload_id = body.data.upload_id
+
+    existing = store.get(partition, day, WearableDayDocument)
+    if existing is not None and upload_id == existing.upload_id:
+        return Envelope(data=WearablePayload(stored=True, date=day))
+    if existing is not None and upload_id in existing.superseded_upload_ids:
+        return Envelope(data=WearablePayload(stored=False, date=day))
+
+    superseded = (
+        [*existing.superseded_upload_ids, existing.upload_id] if existing else []
+    )
+    store.put(
+        partition,
+        day,
+        WearableDayDocument(
+            user_id=member.id,
+            date=day,
+            provider=body.provider,
+            upload_id=upload_id,
+            received_at=datetime.now(UTC).isoformat(timespec="seconds"),
+            superseded_upload_ids=superseded,
+            **metrics.model_dump(),
+        ),
+    )
+    return Envelope(
+        data=WearablePayload(
+            stored=True,
+            date=day,
+            replaced_upload_id=existing.upload_id if existing else None,
+        )
+    )
 
 
 def band_for(value: float, definition: BiomarkerDefinition) -> str:
