@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .routes import auth, home, ingest
+from .routes import auth, history, home, ingest
 from .timing import timing_middleware
 
 STATIC = Path(__file__).parent / "static"
@@ -18,6 +18,7 @@ app.middleware("http")(timing_middleware)
 
 app.include_router(auth.router)
 app.include_router(home.router)
+app.include_router(history.router)
 app.include_router(ingest.router)
 
 # The UI is plain HTML, CSS and JavaScript with no build step, served by this

@@ -116,6 +116,30 @@ class HomePayload(BaseModel):
     results: list[BiomarkerView]
 
 
+class HistoryPoint(BaseModel):
+    tested_at: str
+    value: float
+    status: str
+
+
+class RangePeriod(BaseModel):
+    """Ranges that apply from `from_tested_at` until the next period starts."""
+
+    from_tested_at: str
+    ranges: Ranges
+
+
+class BiomarkerHistory(BaseModel):
+    biomarker_id: str
+    unit: str
+    points: list[HistoryPoint]
+    range_periods: list[RangePeriod]
+
+
+class HistoryPayload(BaseModel):
+    biomarkers: list[BiomarkerHistory]
+
+
 class ReadingBody(BaseModel):
     biomarker_id: str
     value: float

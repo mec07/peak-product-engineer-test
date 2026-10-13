@@ -4,7 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Your results</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&icon_names=expand_more">
 <link rel="stylesheet" href="/static/styles.css">
+<!-- Material Web: the card is still in labs. If these fail to load, the cards
+     fall back to plain CSS and still work. -->
+<script type="module">
+  import "https://cdn.jsdelivr.net/npm/@material/web@2.5.0/labs/card/elevated-card.js/+esm";
+  import "https://cdn.jsdelivr.net/npm/@material/web@2.5.0/icon/icon.js/+esm";
+  import "https://cdn.jsdelivr.net/npm/@material/web@2.5.0/ripple/ripple.js/+esm";
+</script>
 </head>
 <body>
 
@@ -40,6 +48,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"></script>
 <script src="/static/perf.js"></script>
+<script src="/static/charts.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>
