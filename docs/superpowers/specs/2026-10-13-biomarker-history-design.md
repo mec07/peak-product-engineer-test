@@ -136,21 +136,9 @@ lineChart(canvas, {
 
 - `renderMarker` adds a `History` button (`aria-expanded`, `aria-controls`) under the
   scale, plus a hidden panel.
-- **Prefetch after first render:** once `/api/home` has rendered the cards,
-  `loadHistory()` starts `/api/biomarkers/history` in the background (via
-  `requestIdleCallback`, falling back to `setTimeout(0)`). It keeps the promise in a
-  module-level cache. Expanding a card awaits that same promise, and if the
-  prefetch hasn't started yet, it starts it. All cards share the promise, so
-  there's one history request per page load.
-  - Why: the first expand is usually instant, but the cards and latest values still
-    render without waiting for history.
-  - Cost: every page load fetches history even if no card is opened (one capped
-    store query, ≤ about 100 KB). That's acceptable at this size; if it ever isn't,
-    drop the prefetch and the expand-triggered fetch still works.
-  - `scripts/bench.py` only requests `/api/home`, so the budget is unaffected. The
-    dev timing panel (`perf.js`) will count 2 requests per load, because the
-    prefetch starts inside its 250 ms quiet window. That's the honest cost of the
-    screen, so we don't delay the prefetch to hide it.
+- On the first expand of any card, the client calls `/api/biomarkers/history` and
+  keeps the promise in a module-level cache. All cards share it, so there's one
+  request per page load at most.
 - While the request is in flight, the panel shows "Loading history…". If it fails,
   the panel shows "Couldn't load history." and a retry button, which clears the
   cache.
@@ -220,9 +208,8 @@ Measured on a scratch DB (typed query, p50 of 20 runs):
 
 - Each point's ranges and status are as recorded at draw time. Today's definition
   may differ.
-- History is not part of `/api/home`. It's prefetched in the background after the
-  home screen renders. Trade-off: one extra request per page load, even if no
-  card is opened.
+- History is loaded on demand, not with the home screen. Trade-off: the first
+  expand waits on one extra request.
 - Points with a unit that doesn't match the latest are left out of history, not
   converted.
 - Equal x-spacing between draws is acceptable at this data density.
