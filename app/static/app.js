@@ -125,6 +125,36 @@ function scaleFor(ranges) {
   return { bands, low, high, span };
 }
 
+const TREND = {
+  up: { symbol: "↑", verb: "Improved from" },
+  down: { symbol: "↓", verb: "Worse than" },
+  same: { symbol: "–", verb: "No change from" },
+};
+
+/* The arrow compares the marker's band with its previous result, the last two
+   dots on its History chart. Colour and symbol alone aren't enough, so the same
+   sentence is the pill's hover tooltip and is read out with the card's button.
+   Returns the sentence and the nodes to append, or null for a first result. */
+function trendParts(result) {
+  const t = TREND[result.trend];
+  if (!t || !result.previous) return null;
+
+  const was = BAND_LABEL[result.previous.status] ?? result.previous.status;
+  const sentence = `${t.verb} ${was} · ${formatShortDate(result.previous.tested_at)}`;
+
+  const symbol = document.createElement("span");
+  symbol.className = `trend trend-${result.trend}`;
+  symbol.setAttribute("aria-hidden", "true");
+  symbol.textContent = t.symbol;
+
+  const spoken = document.createElement("span");
+  spoken.className = "sr-only";
+  // Leading space, so it isn't read as one word with the label.
+  spoken.textContent = ` ${sentence}`;
+
+  return { sentence, nodes: [symbol, spoken] };
+}
+
 function renderMarker(result) {
   const { bands, low, high, span } = scaleFor(result.ranges);
   const offset = Math.min(100, Math.max(0, ((result.value - low) / span) * 100));
@@ -165,8 +195,13 @@ function renderMarker(result) {
   node.querySelector(".marker-name").textContent = result.name;
   node.querySelector(".marker-value").textContent = result.value;
   node.querySelector(".marker-unit").textContent = result.unit;
-  node.querySelector(".marker-status").textContent =
-    BAND_LABEL[result.status] ?? result.status;
+  const status = node.querySelector(".marker-status");
+  status.textContent = BAND_LABEL[result.status] ?? result.status;
+  const trend = trendParts(result);
+  if (trend) {
+    status.append(...trend.nodes);
+    status.title = trend.sentence;
+  }
   node.querySelector(".low").textContent = low;
   node.querySelector(".high").textContent = high;
 

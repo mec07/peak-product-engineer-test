@@ -1,5 +1,5 @@
 from datetime import date
-from typing import TypeVar
+from typing import Literal, TypeVar
 
 from pydantic import BaseModel, Field
 
@@ -104,6 +104,16 @@ class MemberView(BaseModel):
     birth_date: str
 
 
+Trend = Literal["up", "down", "same"]
+
+
+class PreviousResult(BaseModel):
+    """The marker's previous result: the History chart's second-to-last dot."""
+
+    status: str
+    tested_at: str
+
+
 class BiomarkerView(BaseModel):
     biomarker_id: str
     name: str
@@ -115,6 +125,8 @@ class BiomarkerView(BaseModel):
     tested_at: str
     status: str
     ranges: Ranges
+    trend: Trend | None = None
+    previous: PreviousResult | None = None
 
 
 class MemberPayload(BaseModel):

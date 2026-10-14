@@ -184,6 +184,70 @@ Spec: [docs/superpowers/specs/2026-10-14-wearable-history-design.md](docs/superp
   simultaneous posts could lose a superseded id. A conditional write would fix it;
   the store has none.
 
+## Task 3: Biomarker trend arrows
+
+Spec: [docs/superpowers/specs/2026-10-14-trend-arrows-design.md](docs/superpowers/specs/2026-10-14-trend-arrows-design.md)
+
+### Decisions
+
+- **The arrow means "moved band", not "the value went up".** ↑ better band,
+  ↓ worse band, – same band. Rank: Needs work < Good < Optimal, the same for
+  every marker, since status already encodes the marker's direction.
+- **Compared with the marker's own previous result**, the last two dots on its
+  History chart. Draws are partial, so that result is often 2–5 draws back.
+  Comparing with the previous draw only would leave about 70% of cards with no
+  arrow.
+- **A first result shows no symbol.** "–" would claim "no change", which we don't
+  know.
+- **Computed in `/api/home`.** A `query` over the latest 6 draws replaces the
+  `get` of the latest draw. Only if some marker's previous result is still missing
+  is the rest of the 30-draw window read (a second `query`). Each result gains
+  `trend` and `previous {status, tested_at}`.
+  - Why not read all 30 at once: the final review measured about 10 ms p50 at
+    30 draws. Reading the recent draws first costs 2.0 ms p50 at the cap.
+  - Rejected: storing the previous status at ingest (needs a backfill, and an
+    out-of-order draw breaks it) and computing it client-side from history (no
+    arrows until History is opened).
+- **Bright symbol colours** (green `#169443`, red `#e5484d`, amber `#c2690a`),
+  each at least 3:1 against every pill tint.
+- **Not colour-only:** the pill's tooltip and the card button's screen-reader text
+  say "Improved from Needs work · 12 Mar 2026".
+
+### Assumptions
+
+- The arrow compares **stored** statuses, as the member was told at each draw. A
+  range change between draws can move the arrow even if the value didn't.
+- A previous result in another unit, or more than 30 draws back, isn't used. This
+  matches the History chart.
+
+### Verification
+
+- `scripts/test`: 97 passed (21 new in `tests/test_trend.py`, including a check
+  that every card's arrow matches its History chart's last two points on the
+  seeded data). `scripts/lint` is clean.
+- Store calls for one `/api/home` (tom), still 6 (7 at most, when the older
+  part of the window is needed):
+  `get user` → `keys results:user-3` → `query results:user-3 start=2024-03-31…`
+  (was a `get`) → `query biomarker` → `keys wearables:user-3` →
+  `query wearables:user-3`. No `scan`.
+- Cost of the change, timing `latest_results` in-process (300 runs per member,
+  main vs branch): +0.2–0.7 ms at p50, about +1.5 ms at p95.
+- At the cap (35 synthetic draws, under load): 2.0 ms p50 / 3.6 ms p95 when every
+  marker resolves in the recent 6 draws. The worst case is a brand-new marker,
+  which reads the whole window: 7.0 ms p50 / 12.6 ms p95.
+- The screen-reader name was checked with Playwright's ARIA snapshot:
+  "… Good Worse than Optimal · Sep 9, 2025 History …".
+- `/api/home` p95 over HTTP was noisy because the laptop was at load average
+  ~11 during the run, and `main` was noisy too:
+  - Branch, 3 rounds: james 22.6–22.9 ms, tom 25.8–31.1 ms, sofia 17.3–23.4 ms,
+    priya 17.8 ms with two outliers (63.9, 77.6).
+  - Priya A/B, same load: `main` 26.7–42.5 ms against the branch 16.9–46.0 ms.
+  - Worth re-running `scripts/bench.py` on a quiet machine.
+- Headless Playwright, all 4 members:
+  - Every card's symbol, tooltip and screen-reader text matches `/api/home`.
+  - ↑/↓/– counts: james 9/9/12, priya 11/6/13, tom 8/9/13, sofia 13/8/9.
+  - Pills stay on one line, and there are no page errors.
+
 ## How I used AI tools
 
 - Claude Code (Opus) read the brief, the store and the fixtures. It profiled the
@@ -204,3 +268,7 @@ Spec: [docs/superpowers/specs/2026-10-14-wearable-history-design.md](docs/superp
     a PR, and I now work only on branches with one PR per task.
   - `ruff format` rewrites Python blocks inside the docs, which mangled one plan
     snippet. It was caught by the test run and fixed by hand.
+- Task 3 followed the same spec → plan → execution workflow. A data profile of how
+  far back each marker's previous result sits drove the "own previous result"
+  decision. When the HTTP bench was noisy, Claude ran an A/B against `main` and
+  timed the function in-process instead of trusting one run.

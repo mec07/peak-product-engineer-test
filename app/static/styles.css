@@ -7,6 +7,9 @@
   --good: #a8823c;
   --improve: #a2544a;
   --track: #e8ebe9;
+  --trend-up: #169443;
+  --trend-down: #e5484d;
+  --trend-same: #c2690a;
 }
 
 * { box-sizing: border-box; }
@@ -227,6 +230,29 @@ md-elevated-card.marker:not(:defined) { box-shadow: 0 1px 3px rgb(0 0 0 / 0.15);
 .status-optimal { color: var(--optimal); }
 .status-good { color: var(--good); }
 .status-improve { color: var(--improve); }
+
+/* Trend symbols are brighter than the pill text so they stand out, and each
+   keeps at least 3:1 against all three pill tints (WCAG 1.4.11). */
+.trend {
+  margin-left: 0.3rem;
+  font-weight: 700;
+}
+
+.trend-up { color: var(--trend-up); }
+.trend-down { color: var(--trend-down); }
+.trend-same { color: var(--trend-same); }
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
 
 /* The band scale. Each band is sized to its share of the full range, so the
    position of the tick is readable against the bands either side of it. */
