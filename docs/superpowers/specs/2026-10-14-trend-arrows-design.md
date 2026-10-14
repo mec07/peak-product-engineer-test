@@ -114,10 +114,10 @@ The status pill becomes: `{label}` + optional symbol + optional screen-reader
 sentence.
 
 ```html
-<span class="marker-status status-good">
-  Good<span class="trend trend-up" aria-hidden="true"
-    title="Improved from Needs work · 12 Mar 2026">↑</span><span
-    class="sr-only">Improved from Needs work · 12 Mar 2026</span>
+<span class="marker-status status-good"
+  title="Improved from Needs work · 12 Mar 2026">
+  Good<span class="trend trend-up" aria-hidden="true">↑</span><span
+    class="sr-only"> Improved from Needs work · 12 Mar 2026</span>
 </span>
 ```
 
@@ -131,7 +131,8 @@ sentence.
 - `{previous label}` uses `BAND_LABEL` (Optimal / Good / Needs work).
 - `{date}` uses `formatShortDate(previous.tested_at)`.
 - The sentence is built with `textContent`, never `innerHTML`.
-- **Hover:** the native `title` tooltip on the symbol.
+- **Hover:** the native `title` tooltip on the whole pill, which is a larger target
+  than the symbol.
 - **Screen readers:** the `.sr-only` span. The card summary is a `<button>`, so
   the sentence becomes part of its accessible name. The symbol itself is
   `aria-hidden`.
@@ -157,8 +158,9 @@ all three pill tints over the white card (WCAG 1.4.11 non-text contrast):
 
 ## Tests
 
-New file `tests/test_trend.py`, HTTP only, against `/api/home`. It follows the
-`tests/test_home.py` fixtures and posts draws through the existing ingest route.
+New file `tests/test_trend.py`, HTTP only, against `/api/home`. It writes draws
+straight to the store, as `tests/test_biomarker_history.py` does, so each test
+controls the stored status.
 
 1. **Up:** Needs work then Good gives `trend: "up"`, with `previous.status` and
    `previous.tested_at` from the first draw.
@@ -171,6 +173,8 @@ New file `tests/test_trend.py`, HTTP only, against `/api/home`. It follows the
    that (same unit) is used. If there's none, `null`.
 7. **Window cap:** a previous result older than the latest 30 draws gives `null`.
 8. **Isolation:** another member's draws never affect the trend.
+9. **Agrees with the chart:** on the seeded data, `previous` is the History
+   chart's second-to-last point for every card.
 
 There are also unit tests for `trend()` covering every status pair and an unknown
 status. The existing `tests/test_home.py` assertions check individual fields,
