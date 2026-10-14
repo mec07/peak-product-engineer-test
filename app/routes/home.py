@@ -11,13 +11,16 @@ from ..models import (
     Envelope,
     HomePayload,
     Member,
+    PreviousResult,
     ResultsDocument,
+    Trend,
     WearableDayDocument,
     WearableHistory,
     WearableSeries,
 )
 from ..store import Store, get_store
 from ..wearables import LABELS, METRICS, SUPPORTED
+from .history import HISTORY_LIMIT
 
 router = APIRouter(prefix="/api")
 
@@ -32,31 +35,69 @@ def definitions(store: Store) -> dict[str, BiomarkerDefinition]:
     }
 
 
+RANK = {"improve": 0, "good": 1, "optimal": 2}
+
+
+def trend(previous: str, latest: str) -> Trend | None:
+    """Band movement between two statuses; None if either is unknown."""
+    if previous not in RANK or latest not in RANK:
+        return None
+    change = RANK[latest] - RANK[previous]
+    return "up" if change > 0 else "down" if change < 0 else "same"
+
+
+def previous_results(
+    earlier: list[ResultsDocument],
+) -> dict[tuple[str, str], PreviousResult]:
+    """Each (marker, unit)'s most recent result among the earlier draws.
+
+    Keyed by unit as well as marker, the same guard the History chart uses, so a
+    marker's previous result is always the chart's second-to-last dot. Draws are
+    partial, so that dot can be several draws back.
+    """
+    found: dict[tuple[str, str], PreviousResult] = {}
+    for draw in reversed(earlier):
+        for result in draw.results:
+            key = (result.biomarker_id, result.unit)
+            if key not in found:
+                found[key] = PreviousResult(
+                    status=result.status, tested_at=draw.tested_at
+                )
+    return found
+
+
 def latest_results(
     store: Store, user_id: str
 ) -> tuple[list[BiomarkerView], str | None]:
-    """Every biomarker with this member's most recent value.
+    """Every biomarker with this member's most recent value and its trend.
 
     One partition per member, one document per draw, sorted by ISO timestamp. So
-    the last sort key in the partition is the latest draw.
-
-    Note what this throws away. Every earlier draw is sitting in the same
-    partition and nothing here looks at it.
+    the last sort key in the partition is the latest draw. The query reads the
+    same window the History chart plots (the latest HISTORY_LIMIT draws): the
+    last draw gives the values, the earlier ones only each marker's previous
+    result. That keeps the store calls the same as reading the latest draw alone.
     """
     partition = f"results:{user_id}"
     sort_keys = list(store.keys(partition))
     if not sort_keys:
         return [], None
 
-    draw = store.get(partition, sort_keys[-1], ResultsDocument)
-    if draw is None:
+    window = sort_keys[-HISTORY_LIMIT:]
+    draws = [
+        draw for _sk, draw in store.query(partition, ResultsDocument, start=window[0])
+    ]
+    if not draws:
         return [], None
+    draw = draws[-1]
+    earlier = previous_results(draws[:-1])
 
     defs = definitions(store)
 
     views = []
     for result in draw.results:
         definition = defs.get(result.biomarker_id)
+        before = earlier.get((result.biomarker_id, result.unit))
+        change = trend(before.status, result.status) if before else None
         views.append(
             BiomarkerView(
                 biomarker_id=result.biomarker_id,
@@ -69,6 +110,8 @@ def latest_results(
                 tested_at=draw.tested_at,
                 status=result.status,
                 ranges=result.ranges,
+                trend=change,
+                previous=before if change else None,
             )
         )
 
