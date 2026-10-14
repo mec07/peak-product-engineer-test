@@ -37,6 +37,10 @@ def definitions(store: Store) -> dict[str, BiomarkerDefinition]:
 
 RANK = {"improve": 0, "good": 1, "optimal": 2}
 
+# The latest draw plus the five before it: enough to find every previous result
+# in the fixtures, where one is at most 5 draws back.
+RECENT_DRAWS = 6
+
 
 def trend(previous: str, latest: str) -> Trend | None:
     """Band movement between two statuses; None if either is unknown."""
@@ -72,10 +76,11 @@ def latest_results(
     """Every biomarker with this member's most recent value and its trend.
 
     One partition per member, one document per draw, sorted by ISO timestamp. So
-    the last sort key in the partition is the latest draw. The query reads the
-    same window the History chart plots (the latest HISTORY_LIMIT draws): the
-    last draw gives the values, the earlier ones only each marker's previous
-    result. That keeps the store calls the same as reading the latest draw alone.
+    the last sort key in the partition is the latest draw. Previous results come
+    from the same window the History chart plots (the latest HISTORY_LIMIT
+    draws). Decoding the whole window costs ~10 ms at 30 draws, so the recent
+    draws are read first and the rest of the window only when some marker's
+    previous result is still missing: one query usually, two at most.
     """
     partition = f"results:{user_id}"
     sort_keys = list(store.keys(partition))
@@ -83,13 +88,25 @@ def latest_results(
         return [], None
 
     window = sort_keys[-HISTORY_LIMIT:]
+    recent, older = window[-RECENT_DRAWS:], window[:-RECENT_DRAWS]
     draws = [
-        draw for _sk, draw in store.query(partition, ResultsDocument, start=window[0])
+        draw for _sk, draw in store.query(partition, ResultsDocument, start=recent[0])
     ]
     if not draws:
         return [], None
     draw = draws[-1]
     earlier = previous_results(draws[:-1])
+
+    wanted = {(result.biomarker_id, result.unit) for result in draw.results}
+    if older and not wanted <= earlier.keys():
+        rest = [
+            d
+            for _sk, d in store.query(
+                partition, ResultsDocument, start=older[0], end=recent[0]
+            )
+        ]
+        for key, before in previous_results(rest).items():
+            earlier.setdefault(key, before)
 
     defs = definitions(store)
 

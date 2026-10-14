@@ -10,6 +10,7 @@ import pytest
 
 from app.models import BiomarkerResult, Ranges, ResultsDocument
 from app.routes.home import trend
+from app.store import Store
 
 RANGES = Ranges(
     optimal={"min": 10, "max": 20},
@@ -43,6 +44,22 @@ def add_draw(store):
         )
 
     return add
+
+
+@pytest.fixture
+def results_decoded(monkeypatch):
+    """Counts the draw documents decoded from results:* partitions."""
+    count = {"docs": 0}
+    original = Store.query
+
+    def counting(self, pk, *args, **kwargs):
+        for item in original(self, pk, *args, **kwargs):
+            if pk.startswith("results:"):
+                count["docs"] += 1
+            yield item
+
+    monkeypatch.setattr(Store, "query", counting)
+    return count
 
 
 def home_by_id(client) -> dict[str, dict]:
@@ -180,3 +197,14 @@ def test_trend_agrees_with_the_history_charts_last_two_dots(signed_in):
             "tested_at": before["tested_at"],
         }
         assert latest["trend"] == trend(before["status"], last["status"])
+
+
+def test_resolved_trends_decode_only_the_recent_draws(
+    signed_in, add_draw, results_decoded
+):
+    # A long-standing member: 30 draws, every marker resolved by the draw before.
+    for day in range(1, 31):
+        add_draw("user-1", f"2024-01-{day:02d}T09:00:00", result("a", "good"))
+
+    assert home_by_id(signed_in)["a"]["trend"] == "same"
+    assert results_decoded["docs"] == 6

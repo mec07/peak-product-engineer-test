@@ -199,9 +199,12 @@ Spec: [docs/superpowers/specs/2026-10-14-trend-arrows-design.md](docs/superpower
   arrow.
 - **A first result shows no symbol.** "–" would claim "no change", which we don't
   know.
-- **Computed in `/api/home`.** One `query` over the latest ≤30 draws replaces the
-  `get` of the latest draw, so the number of store calls is unchanged. Each result
-  gains `trend` and `previous {status, tested_at}`.
+- **Computed in `/api/home`.** A `query` over the latest 6 draws replaces the
+  `get` of the latest draw. Only if some marker's previous result is still missing
+  is the rest of the 30-draw window read (a second `query`). Each result gains
+  `trend` and `previous {status, tested_at}`.
+  - Why not read all 30 at once: the final review measured about 10 ms p50 at
+    30 draws. Reading the recent draws first costs 2.0 ms p50 at the cap.
   - Rejected: storing the previous status at ingest (needs a backfill, and an
     out-of-order draw breaks it) and computing it client-side from history (no
     arrows until History is opened).
@@ -222,12 +225,18 @@ Spec: [docs/superpowers/specs/2026-10-14-trend-arrows-design.md](docs/superpower
 - `scripts/test`: 97 passed (21 new in `tests/test_trend.py`, including a check
   that every card's arrow matches its History chart's last two points on the
   seeded data). `scripts/lint` is clean.
-- Store calls for one `/api/home` (tom), still 6:
+- Store calls for one `/api/home` (tom), still 6 (7 at most, when the older
+  part of the window is needed):
   `get user` → `keys results:user-3` → `query results:user-3 start=2024-03-31…`
   (was a `get`) → `query biomarker` → `keys wearables:user-3` →
   `query wearables:user-3`. No `scan`.
 - Cost of the change, timing `latest_results` in-process (300 runs per member,
   main vs branch): +0.2–0.7 ms at p50, about +1.5 ms at p95.
+- At the cap (35 synthetic draws, under load): 2.0 ms p50 / 3.6 ms p95 when every
+  marker resolves in the recent 6 draws. The worst case is a brand-new marker,
+  which reads the whole window: 7.0 ms p50 / 12.6 ms p95.
+- The screen-reader name was checked with Playwright's ARIA snapshot:
+  "… Good Worse than Optimal · Sep 9, 2025 History …".
 - `/api/home` p95 over HTTP was noisy because the laptop was at load average
   ~11 during the run, and `main` was noisy too:
   - Branch, 3 rounds: james 22.6–22.9 ms, tom 25.8–31.1 ms, sofia 17.3–23.4 ms,
